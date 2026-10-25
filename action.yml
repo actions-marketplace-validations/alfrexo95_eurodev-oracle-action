@@ -1,19 +1,23 @@
 name: 'EuroDev Oracle Action'
-description: 'Automated GDPR compliance checks and EU tech facts for European developers.'
+description: 'Automated GDPR checks, EU tech facts, and advanced lead generation.'
 author: 'alfrexo95'
 branding:
   icon: 'shield'
   color: 'blue'
 inputs:
   github-token:
-    description: 'GitHub token for API access.'
+    description: 'GitHub token.'
     required: true
   etherscan-api-key:
-    description: 'Etherscan API key for payment verification.'
+    description: 'Etherscan API key.'
     required: true
   crypto-address-eth:
-    description: 'Ethereum address to receive payments.'
+    description: 'ETH address for payments.'
     required: true
+  pat-token:
+    description: 'Personal Access Token for global search (hunt mode).'
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -26,4 +30,5 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         ETHERSCAN_API_KEY: ${{ inputs.etherscan-api-key }}
         CRYPTO_ADDRESS_ETH: ${{ inputs.crypto-address-eth }}
+        PAT_TOKEN: ${{ inputs.pat-token }}
       run: python ${{ github.action_path }}/eurodev.py
