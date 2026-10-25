@@ -15,7 +15,7 @@ inputs:
     description: 'ETH address for payments.'
     required: true
   pat-token:
-    description: 'Personal Access Token for global search (hunt mode).'
+    description: 'PAT for global search.'
     required: false
     default: ''
 runs:

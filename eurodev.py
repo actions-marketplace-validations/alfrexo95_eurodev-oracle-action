@@ -1,4 +1,4 @@
-import os, sys, requests, hashlib, time, re
+import os, sys, requests, hashlib, base64
 from datetime import datetime, timedelta
 
 ETH_PRICE_USD     = 3000 
@@ -13,7 +13,6 @@ ISSUE_USER        = os.environ.get("ISSUE_USER", "mystery_user")
 ISSUE_BODY        = os.environ.get("ISSUE_BODY", "").lower()
 COMMENT_BODY      = os.environ.get("COMMENT_BODY", "")
 EVENT_NAME        = os.environ.get("EVENT_NAME", "")
-MODE              = os.environ.get("MODE", "interact")
 
 headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 pat_headers = {"Authorization": f"token {PAT_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -22,11 +21,6 @@ def post(text, issue_num=ISSUE_NUMBER):
     if not issue_num: return
     url = f"https://api.github.com/repos/{REPO}/issues/{issue_num}/comments"
     requests.post(url, headers=headers, json={"body": text}, timeout=20)
-
-def create_issue(title, body):
-    url = f"https://api.github.com/repos/{REPO}/issues"
-    r = requests.post(url, headers=headers, json={"title": title, "body": body}, timeout=20)
-    return r.json().get("html_url", "")
 
 def verify_tx(tx_hash):
     try:
@@ -52,12 +46,9 @@ def is_tx_used(tx_hash):
             if tx_hash.lower() in c["body"].lower(): return True
     return False
 
-# --- FUNCIÓN DE ANÁLISIS AVANZADO ---
 def analyze_repo():
     report = "## 🛡️ Advanced GDPR & Security Report\n\n"
-    report += "Our AI scanned your repository files for potential privacy leaks and exposed secrets.\n\n"
     findings = []
-    
     for root, dirs, files in os.walk("."):
         if ".git" in root: continue
         for file in files:
@@ -68,58 +59,63 @@ def analyze_repo():
                         if re.search(r"(password|secret|api_key|token)\s*[:=]", content, re.IGNORECASE):
                             findings.append(f"- **`{file}`**: Contains hardcoded keywords (password/secret/token).")
                 except: pass
-                
     if findings:
-        report += "### ⚠️ Potential Secret Exposure Detected:\n"
-        report += "\n".join(findings[:10]) + "\n\n"
+        report += "### ⚠️ Potential Secret Exposure Detected:\n" + "\n".join(findings[:10]) + "\n\n"
     else:
-        report += "✅ No obvious hardcoded secrets found in the top-level files.\n\n"
-        
-    report += "### 📋 Actionable GDPR Checklist:\n"
-    report += "- [ ] Ensure all `.env` files are listed in `.gitignore`.\n"
-    report += "- [ ] Verify that user emails are hashed before storage.\n"
-    report += "- [ ] Add a `PRIVACY.md` file to your repository.\n"
-    report += "- [ ] Implement a 72-hour breach notification protocol.\n"
+        report += "✅ No obvious hardcoded secrets found.\n\n"
+    report += "### 📋 Actionable GDPR Checklist:\n- [ ] Ensure `.env` is in `.gitignore`.\n- [ ] Hash user emails.\n- [ ] Add `PRIVACY.md`.\n- [ ] Implement 72-hour breach notification."
     return report
 
-# --- FUNCIÓN CAZADOR DE CLIENTES ---
+def save_leads_to_file(content):
+    """Guarda los leads en LEADS.md sin llenar el repo de Issues"""
+    url = f"https://api.github.com/repos/{REPO}/contents/LEADS.md"
+    r = requests.get(url, headers=headers)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+    
+    data = {
+        "message": "🤖 Auto-update: Daily EU Leads",
+        "content": base64.b64encode(content.encode()).decode(),
+        "branch": "main"
+    }
+    if sha: data["sha"] = sha
+    requests.put(url, headers=headers, json=data)
+
 def hunt_leads():
-    report = "## 🎯 Daily Lead Generation (EU Developers)\n\n"
-    report += "Here are potential clients who recently opened issues mentioning data/privacy keywords in Europe.\n\n"
+    report = f"# 🎯 Autonomus EU Leads Report\n*Last update: {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n\n"
     date_since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
     q = f'is:issue is:open "password" OR "email" OR "user data" created:>{date_since}'
     
     r = requests.get(f"https://api.github.com/search/issues?q={q}&per_page=5", headers=pat_headers, timeout=20)
-    
     if r.status_code == 200:
-        items = r.json().get("items", [])
-        for item in items:
+        for item in r.json().get("items", []):
             user = item["user"]["login"]
             if user == "alfrexo95": continue
-            
             u_resp = requests.get(f"https://api.github.com/users/{user}", headers=pat_headers, timeout=10)
             loc = u_resp.json().get("location", "")
             eu = ["Germany", "France", "UK", "Spain", "Italy", "Netherlands", "Poland", "Sweden", "Belgium", "Austria", "Switzerland", "Ireland"]
             
             if any(c.lower() in loc.lower() for c in eu) or "europe" in loc.lower():
-                report += f"### 👤 @{user} ({loc})\n"
+                report += f"## 👤 @{user} ({loc})\n"
                 report += f"- **Issue:** [{item['title']}]({item['html_url']})\n"
-                report += f"- **Suggested Comment:**\n> Hey! I saw your issue about data handling. If you need to ensure GDPR compliance, check out the **EuroDev Oracle Action** (free on GitHub Marketplace) or unlock our advanced $25 compliance checklist.\n\n"
+                report += f"- **Suggested Comment:**\n> Hey! I saw your issue about data handling. If you need to ensure GDPR compliance, check out the **EuroDev Oracle Action** or unlock our advanced $25 compliance checklist.\n\n"
     else:
         report += f"❌ Search failed: {r.status_code}\n"
-        
-    if "### 👤" not in report:
-        report += "No new European leads found today.\n"
-    return report
+    if "## 👤" not in report: report += "No new European leads found today.\n"
+    save_leads_to_file(report)
 
 def generate_response(user, num, salt=""):
     r = int(hashlib.sha256(f"{user}-{num}-{salt}".encode()).hexdigest(), 16)
     facts = ["🇪🇺 The EU AI Act is the world's first comprehensive AI law.", "💻 Europe is home to over 1.5 million developers.", "🔒 GDPR fines can reach up to €20 million.", "🌍 Open Source contributes €95B to the EU economy."]
     return (f"🇪🇺 **EuroDev Oracle** 🇪🇺\n\nHello **@{user}**!\n\n💡 **EU Fact:** {facts[r % len(facts)]}\n\n---\n💎 **Premium:** Need an Advanced Code Scan + GDPR Checklist? Send **$25 in ETH** to `{ETH_ADDRESS}` and comment `/premium <tx_hash>`.")
 
-if (EVENT_NAME == "workflow_dispatch" and MODE == "hunt") or EVENT_NAME == "schedule":
-    url = create_issue(f"🎯 Leads Report - {datetime.now().strftime('%Y-%m-%d')}", hunt_leads())
-    print(f"Created report: {url}")
+# --- LÓGICA DE EJECUCIÓN 24/7 ---
+if EVENT_NAME == "schedule":
+    print("Ciclo autónomo iniciado...")
+    hunt_leads()
+    sys.exit(0)
+
+if EVENT_NAME == "workflow_dispatch":
+    hunt_leads()
     sys.exit(0)
 
 if EVENT_NAME == "issues":
@@ -138,8 +134,7 @@ elif EVENT_NAME == "issue_comment":
                 sys.exit(0)
             ok, msg = verify_tx(tx)
             if ok:
-                adv_report = analyze_repo()
-                post(f"✅ **{msg}**\n\n{adv_report}")
+                post(f"✅ **{msg}**\n\n{analyze_repo()}")
             else:
                 post(f"❌ **Payment failed:** {msg}")
     else:
