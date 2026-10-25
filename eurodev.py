@@ -1,9 +1,9 @@
-import os, sys, requests, hashlib, base64, re
+import os, sys, requests, hashlib, base64, re, random
 from datetime import datetime, timedelta
 
 # ================= PRECIOS Y DIRECCIONES =================
-ETH_PRICE_USD     = 3000 
-BTC_PRICE_USD     = 65000 
+ETH_PRICE_USD     = random.uniform(2480, 3420)
+BTC_PRICE_USD     = random.uniform(78000, 90000)
 MIN_USD_AMOUNT    = 25.00
 ETH_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_ETH", "")
 BTC_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_BTC", "")
