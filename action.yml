@@ -1,5 +1,5 @@
 name: 'EuroDev Oracle Action'
-description: 'Automated GDPR checks, EU tech facts, and advanced lead generation.'
+description: 'Automated GDPR checks, EU tech facts, and advanced lead generation. Accepts ETH and BTC.'
 author: 'alfrexo95'
 branding:
   icon: 'shield'
@@ -13,6 +13,9 @@ inputs:
     required: true
   crypto-address-eth:
     description: 'ETH address for payments.'
+    required: true
+  crypto-address-btc:
+    description: 'BTC address for payments.'
     required: true
   pat-token:
     description: 'PAT for global search.'
@@ -30,5 +33,6 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         ETHERSCAN_API_KEY: ${{ inputs.etherscan-api-key }}
         CRYPTO_ADDRESS_ETH: ${{ inputs.crypto-address-eth }}
+        CRYPTO_ADDRESS_BTC: ${{ inputs.crypto-address-btc }}
         PAT_TOKEN: ${{ inputs.pat-token }}
       run: python ${{ github.action_path }}/eurodev.py

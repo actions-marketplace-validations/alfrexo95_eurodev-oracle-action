@@ -1,9 +1,12 @@
 import os, sys, requests, hashlib, base64, re
 from datetime import datetime, timedelta
 
+# ================= PRECIOS Y DIRECCIONES =================
 ETH_PRICE_USD     = 3000 
+BTC_PRICE_USD     = 65000 
 MIN_USD_AMOUNT    = 25.00
 ETH_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_ETH", "")
+BTC_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_BTC", "")
 ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 PAT_TOKEN         = os.environ.get("PAT_TOKEN", GITHUB_TOKEN)
@@ -22,21 +25,39 @@ def post(text, issue_num=ISSUE_NUMBER):
     url = f"https://api.github.com/repos/{REPO}/issues/{issue_num}/comments"
     requests.post(url, headers=headers, json={"body": text}, timeout=20)
 
-def verify_tx(tx_hash):
+def verify_eth_tx(tx_hash):
     try:
         r = requests.get("https://api.etherscan.io/api", params={
             "module": "proxy", "action": "eth_getTransactionByHash",
             "txhash": tx_hash, "apikey": ETHERSCAN_API_KEY
         }, timeout=20).json()
-        if r.get("result") is None: return False, "TX not found."
+        if r.get("result") is None: return False, "ETH TX not found."
         tx = r["result"]
-        if tx["to"].lower() != ETH_ADDRESS.lower(): return False, "Wrong address."
+        if tx["to"].lower() != ETH_ADDRESS.lower(): return False, "Wrong ETH address."
         eth = int(tx["value"], 16) / 1e18
         usd = eth * ETH_PRICE_USD
         if usd >= MIN_USD_AMOUNT: return True, f"{eth:.6f} ETH verified (≈${usd:.2f})"
-        return False, f"Insufficient amount (Requires $25.00)."
+        return False, f"Insufficient ETH amount (Requires $25.00)."
     except Exception as e:
         return False, f"Etherscan error: {e}"
+
+def verify_btc_tx(tx_hash):
+    try:
+        r = requests.get(f"https://blockstream.info/api/tx/{tx_hash}", timeout=20)
+        if r.status_code != 200: return False, "BTC TX not found."
+        tx = r.json()
+        
+        for vout in tx.get("vout", []):
+            if vout.get("scriptpubkey_address") == BTC_ADDRESS:
+                sats = vout.get("value", 0)
+                btc = sats / 100000000
+                usd = btc * BTC_PRICE_USD
+                if usd >= MIN_USD_AMOUNT:
+                    return True, f"{btc:.6f} BTC verified (≈${usd:.2f})"
+                return False, f"Insufficient BTC amount (Requires $25.00)."
+        return False, "BTC address not found in outputs."
+    except Exception as e:
+        return False, f"Blockstream error: {e}"
 
 def is_tx_used(tx_hash):
     url = f"https://api.github.com/repos/{REPO}/issues/{ISSUE_NUMBER}/comments?per_page=100"
@@ -108,7 +129,12 @@ def hunt_leads():
 def generate_response(user, num, salt=""):
     r = int(hashlib.sha256(f"{user}-{num}-{salt}".encode()).hexdigest(), 16)
     facts = ["🇪🇺 The EU AI Act is the world's first comprehensive AI law.", "💻 Europe is home to over 1.5 million developers.", "🔒 GDPR fines can reach up to €20 million.", "🌍 Open Source contributes €95B to the EU economy."]
-    return (f"🇪🇺 **EuroDev Oracle** 🇪🇺\n\nHello **@{user}**!\n\n💡 **EU Fact:** {facts[r % len(facts)]}\n\n---\n💎 **Premium:** Need an Advanced Code Scan + GDPR Checklist? Send **$25 in ETH** to `{ETH_ADDRESS}` and comment `/premium <tx_hash>`.")
+    return (f"🇪🇺 **EuroDev Oracle** 🇪🇺\n\nHello **@{user}**!\n\n"
+            f"💡 **EU Fact:** {facts[r % len(facts)]}\n\n---\n"
+            f"💎 **Premium Service ($25.00):** Advanced Code Scan + GDPR Checklist.\n"
+            f"**Pay with ETH:** `{ETH_ADDRESS}`\n"
+            f"**Pay with BTC:** `{BTC_ADDRESS}`\n\n"
+            f"After paying, comment: `/premium eth <tx_hash>` or `/premium btc <tx_hash>`")
 
 # --- LÓGICA DE EJECUCIÓN ---
 if EVENT_NAME == "schedule" or (EVENT_NAME == "workflow_dispatch" and not ISSUE_NUMBER):
@@ -121,17 +147,27 @@ if EVENT_NAME == "issues":
     post(generate_response(ISSUE_USER, ISSUE_NUMBER))
 
 elif EVENT_NAME == "issue_comment":
-    body = COMMENT_BODY.strip()
+    body = COMMENT_BODY.strip().lower()
     if body.startswith("/premium"):
         parts = body.split()
-        if len(parts) < 2:
-            post("❌ Usage: `/premium <tx_hash>`")
+        if len(parts) < 3:
+            post("❌ Usage: `/premium eth <tx_hash>` or `/premium btc <tx_hash>`")
         else:
-            tx = parts[1]
-            if is_tx_used(tx):
+            currency = parts[1]
+            tx_hash = parts[2]
+            
+            if is_tx_used(tx_hash):
                 post("⚠️ TX already used.")
                 sys.exit(0)
-            ok, msg = verify_tx(tx)
+                
+            if currency == "eth":
+                ok, msg = verify_eth_tx(tx_hash)
+            elif currency == "btc":
+                ok, msg = verify_btc_tx(tx_hash)
+            else:
+                post("❌ Invalid currency. Use `eth` or `btc`.")
+                sys.exit(0)
+                
             if ok:
                 post(f"✅ **{msg}**\n\n{analyze_repo()}")
             else:
