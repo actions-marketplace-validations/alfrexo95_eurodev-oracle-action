@@ -1,4 +1,4 @@
-import os, sys, requests, hashlib, base64
+import os, sys, requests, hashlib, base64, re
 from datetime import datetime, timedelta
 
 ETH_PRICE_USD     = 3000 
@@ -57,31 +57,33 @@ def analyze_repo():
                     with open(os.path.join(root, file), "r", errors="ignore") as f:
                         content = f.read()
                         if re.search(r"(password|secret|api_key|token)\s*[:=]", content, re.IGNORECASE):
-                            findings.append(f"- **`{file}`**: Contains hardcoded keywords (password/secret/token).")
+                            findings.append(f"- **`{file}`**: Contains hardcoded keywords.")
                 except: pass
     if findings:
-        report += "### ⚠️ Potential Secret Exposure Detected:\n" + "\n".join(findings[:10]) + "\n\n"
+        report += "### ⚠️ Potential Secret Exposure:\n" + "\n".join(findings[:10]) + "\n\n"
     else:
         report += "✅ No obvious hardcoded secrets found.\n\n"
-    report += "### 📋 Actionable GDPR Checklist:\n- [ ] Ensure `.env` is in `.gitignore`.\n- [ ] Hash user emails.\n- [ ] Add `PRIVACY.md`.\n- [ ] Implement 72-hour breach notification."
+    report += "### 📋 GDPR Checklist:\n- [ ] Ensure `.env` is in `.gitignore`.\n- [ ] Hash user emails.\n- [ ] Add `PRIVACY.md`.\n- [ ] Implement 72-hour breach notification."
     return report
 
-def save_leads_to_file(content):
-    """Guarda los leads en LEADS.md sin llenar el repo de Issues"""
-    url = f"https://api.github.com/repos/{REPO}/contents/LEADS.md"
+def save_file(path, content, commit_msg):
+    url = f"https://api.github.com/repos/{REPO}/contents/{path}"
     r = requests.get(url, headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
     
     data = {
-        "message": "🤖 Auto-update: Daily EU Leads",
+        "message": commit_msg,
         "content": base64.b64encode(content.encode()).decode(),
         "branch": "main"
     }
     if sha: data["sha"] = sha
     requests.put(url, headers=headers, json=data)
 
+def keep_alive():
+    save_file("heartbeat.txt", f"Alive: {datetime.now()}", "💓 Auto-heartbeat")
+
 def hunt_leads():
-    report = f"# 🎯 Autonomus EU Leads Report\n*Last update: {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n\n"
+    report = f"# 🎯 Autonomous EU Leads Report\n*Last update: {datetime.now().strftime('%Y-%m-%d %H:%M')}*\n\n"
     date_since = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
     q = f'is:issue is:open "password" OR "email" OR "user data" created:>{date_since}'
     
@@ -97,24 +99,21 @@ def hunt_leads():
             if any(c.lower() in loc.lower() for c in eu) or "europe" in loc.lower():
                 report += f"## 👤 @{user} ({loc})\n"
                 report += f"- **Issue:** [{item['title']}]({item['html_url']})\n"
-                report += f"- **Suggested Comment:**\n> Hey! I saw your issue about data handling. If you need to ensure GDPR compliance, check out the **EuroDev Oracle Action** or unlock our advanced $25 compliance checklist.\n\n"
+                report += f"- **Suggested Comment:**\n> Hey! I saw your issue about data handling. If you need to ensure GDPR compliance, check out the **EuroDev Oracle Action** or unlock our advanced $25 checklist.\n\n"
     else:
         report += f"❌ Search failed: {r.status_code}\n"
     if "## 👤" not in report: report += "No new European leads found today.\n"
-    save_leads_to_file(report)
+    save_file("LEADS.md", report, "🤖 Auto-update: Daily EU Leads")
 
 def generate_response(user, num, salt=""):
     r = int(hashlib.sha256(f"{user}-{num}-{salt}".encode()).hexdigest(), 16)
     facts = ["🇪🇺 The EU AI Act is the world's first comprehensive AI law.", "💻 Europe is home to over 1.5 million developers.", "🔒 GDPR fines can reach up to €20 million.", "🌍 Open Source contributes €95B to the EU economy."]
     return (f"🇪🇺 **EuroDev Oracle** 🇪🇺\n\nHello **@{user}**!\n\n💡 **EU Fact:** {facts[r % len(facts)]}\n\n---\n💎 **Premium:** Need an Advanced Code Scan + GDPR Checklist? Send **$25 in ETH** to `{ETH_ADDRESS}` and comment `/premium <tx_hash>`.")
 
-# --- LÓGICA DE EJECUCIÓN 24/7 ---
-if EVENT_NAME == "schedule":
+# --- LÓGICA DE EJECUCIÓN ---
+if EVENT_NAME == "schedule" or (EVENT_NAME == "workflow_dispatch" and not ISSUE_NUMBER):
     print("Ciclo autónomo iniciado...")
-    hunt_leads()
-    sys.exit(0)
-
-if EVENT_NAME == "workflow_dispatch":
+    keep_alive()
     hunt_leads()
     sys.exit(0)
 
