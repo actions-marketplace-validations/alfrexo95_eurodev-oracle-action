@@ -1,13 +1,12 @@
-import os, sys, requests, hashlib, base64, re, random
+import os, sys, requests, hashlib, base64, re
 from datetime import datetime, timedelta
 
-# ================= PRECIOS Y DIRECCIONES =================
-ETH_PRICE_USD     = random.uniform(2480, 3420)
-BTC_PRICE_USD     = random.uniform(78000, 90000)
+# ================= CONFIGURACIÓN =================
 MIN_USD_AMOUNT    = 25.00
-ETH_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_ETH", "")
-BTC_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_BTC", "")
-ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
+ETH_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_ETH", "0xA5E6eB31868A85127B1ED82b8C760193356206ED")
+BTC_ADDRESS       = os.environ.get("CRYPTO_ADDRESS_BTC", "bc1qt3rukpe7qp737zj5j5xpxxmcqv90cfefhg5e00")
+# Tu API key insertada por defecto (se recomienda usar GitHub Secrets en producción)
+ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "SSNXPNG7VZ53A2ZZYG4K73G2PPFUM8G96D")
 GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
 PAT_TOKEN         = os.environ.get("PAT_TOKEN", GITHUB_TOKEN)
 REPO              = os.environ.get("GITHUB_REPOSITORY", "")
@@ -20,12 +19,33 @@ EVENT_NAME        = os.environ.get("EVENT_NAME", "")
 headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 pat_headers = {"Authorization": f"token {PAT_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 
+# ================= FUNCIONES DE PRECIO =================
+def get_eth_price():
+    """Obtiene el precio real de ETH desde Etherscan."""
+    try:
+        r = requests.get("https://api.etherscan.io/api", params={
+            "module": "stats", "action": "ethprice", "apikey": ETHERSCAN_API_KEY
+        }, timeout=10).json()
+        return float(r["result"]["ethusd"])
+    except Exception:
+        return 3000.0  # Fallback
+
+def get_btc_price():
+    """Obtiene el precio real de BTC desde la API de Block (actualización cada 60s)."""
+    try:
+        r = requests.get("https://pricing.bitcoin.block.xyz/current-price", timeout=10).json()
+        return float(r["amount"])
+    except Exception:
+        return 85000.0  # Fallback
+
+# ================= LÓGICA DEL BOT =================
 def post(text, issue_num=ISSUE_NUMBER):
     if not issue_num: return
     url = f"https://api.github.com/repos/{REPO}/issues/{issue_num}/comments"
     requests.post(url, headers=headers, json={"body": text}, timeout=20)
 
 def verify_eth_tx(tx_hash):
+    eth_price = get_eth_price()
     try:
         r = requests.get("https://api.etherscan.io/api", params={
             "module": "proxy", "action": "eth_getTransactionByHash",
@@ -34,14 +54,17 @@ def verify_eth_tx(tx_hash):
         if r.get("result") is None: return False, "ETH TX not found."
         tx = r["result"]
         if tx["to"].lower() != ETH_ADDRESS.lower(): return False, "Wrong ETH address."
-        eth = int(tx["value"], 16) / 1e18
-        usd = eth * ETH_PRICE_USD
-        if usd >= MIN_USD_AMOUNT: return True, f"{eth:.6f} ETH verified (≈${usd:.2f})"
-        return False, f"Insufficient ETH amount (Requires $25.00)."
+        
+        eth_amount = int(tx["value"], 16) / 1e18
+        usd = eth_amount * eth_price
+        if usd >= MIN_USD_AMOUNT: 
+            return True, f"{eth_amount:.6f} ETH verified (≈${usd:.2f} at ${eth_price:,.2f}/ETH)"
+        return False, f"Insufficient ETH amount. Got ≈${usd:.2f}, requires $25.00 (Rate: ${eth_price:,.2f}/ETH)"
     except Exception as e:
         return False, f"Etherscan error: {e}"
 
 def verify_btc_tx(tx_hash):
+    btc_price = get_btc_price()
     try:
         r = requests.get(f"https://blockstream.info/api/tx/{tx_hash}", timeout=20)
         if r.status_code != 200: return False, "BTC TX not found."
@@ -50,11 +73,11 @@ def verify_btc_tx(tx_hash):
         for vout in tx.get("vout", []):
             if vout.get("scriptpubkey_address") == BTC_ADDRESS:
                 sats = vout.get("value", 0)
-                btc = sats / 100000000
-                usd = btc * BTC_PRICE_USD
+                btc_amount = sats / 100000000
+                usd = btc_amount * btc_price
                 if usd >= MIN_USD_AMOUNT:
-                    return True, f"{btc:.6f} BTC verified (≈${usd:.2f})"
-                return False, f"Insufficient BTC amount (Requires $25.00)."
+                    return True, f"{btc_amount:.6f} BTC verified (≈${usd:.2f} at ${btc_price:,.2f}/BTC)"
+                return False, f"Insufficient BTC amount. Got ≈${usd:.2f}, requires $25.00 (Rate: ${btc_price:,.2f}/BTC)"
         return False, "BTC address not found in outputs."
     except Exception as e:
         return False, f"Blockstream error: {e}"
@@ -92,11 +115,7 @@ def save_file(path, content, commit_msg):
     r = requests.get(url, headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
     
-    data = {
-        "message": commit_msg,
-        "content": base64.b64encode(content.encode()).decode(),
-        "branch": "main"
-    }
+    data = {"message": commit_msg, "content": base64.b64encode(content.encode()).decode(), "branch": "main"}
     if sha: data["sha"] = sha
     requests.put(url, headers=headers, json=data)
 
